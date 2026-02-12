@@ -4,32 +4,36 @@
 - 返回总目录：[设计模式面试体系](../README.md)
 
 ## 一句话定义
-把对象创建延迟到子类工厂，调用方只依赖抽象产品接口。
+定义创建对象的接口，让子类决定实例化哪一种具体产品。
 
 ## 关键知识点
-- 角色：Product、ConcreteProduct、Factory、ConcreteFactory。
-- 新增产品时增加新产品类 + 新工厂类，原调用方少改动。
-- C++ 推荐返回 `std::unique_ptr<Product>`，明确所有权。
+- 角色：`Product`、`ConcreteProduct`、`Factory`、`ConcreteFactory`。
+- 客户端依赖抽象产品，不直接 `new` 具体类。
+- C++ 实践建议：工厂返回 `std::unique_ptr<Product>`。
 
-## 图解（Mermaid）
+## 这种模式的好处
+- 隔离创建细节，降低调用方耦合。
+- 新增产品时改动集中，扩展路径清晰。
+- 统一创建入口，便于日志、监控、缓存等横切能力注入。
+
+## 实际例子（面试可直接复述）
+日志系统支持 ConsoleLogger / FileLogger。配置切换后由不同工厂创建对应 Logger。业务代码只拿 `ILogger` 使用。
+
+## 流程图（Mermaid）
 ```mermaid
-classDiagram
-class Product
-class ConcreteProductA
-class ConcreteProductB
-Product <|-- ConcreteProductA
-Product <|-- ConcreteProductB
-class Factory{+create() Product*}
-class FactoryA
-class FactoryB
-Factory <|-- FactoryA
-Factory <|-- FactoryB
+sequenceDiagram
+participant Client
+participant Factory as LoggerFactory
+participant Product as ILogger
+Client->>Factory: createLogger(type)
+Factory-->>Client: unique_ptr<ILogger>
+Client->>Product: log(msg)
 ```
 
 ## 面试答题模板（30~60秒）
-1. 先说定义：把对象创建延迟到子类工厂，调用方只依赖抽象产品接口。
-2. 再说适用场景与优缺点。
-3. 最后给一个 C++ 落地点（接口抽象、智能指针、生命周期管理）。
+1. 先下定义：定义创建对象的接口，让子类决定实例化哪一种具体产品。
+2. 再讲一个真实业务例子，说明“为什么要用它”。
+3. 最后补充优势与边界（什么时候不该用）。
 
 ## 关联概念跳转
 - [抽象工厂模式题目](../10-抽象工厂模式.md)

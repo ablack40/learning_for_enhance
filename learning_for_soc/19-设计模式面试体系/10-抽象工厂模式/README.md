@@ -4,29 +4,35 @@
 - 返回总目录：[设计模式面试体系](../README.md)
 
 ## 一句话定义
-创建“同一产品族”的一组对象，保证族内兼容。
+为一组相关或相互依赖的对象（产品族）提供统一创建接口。
 
 ## 关键知识点
-- 新增产品族容易（新增工厂实现）；新增产品等级较难（改所有工厂接口）。
-- 适合跨平台组件切换，如 Windows/Linux UI 套件。
-- 若维度单一可降级为工厂方法，降低复杂度。
+- 关注“产品族一致性”，如同一平台下按钮 + 输入框 + 菜单风格一致。
+- 新增产品族容易；新增产品等级通常需要改所有工厂接口。
+- 常用于跨平台 UI、数据库驱动族、硬件驱动族。
 
-## 图解（Mermaid）
+## 这种模式的好处
+- 保证同一产品族的兼容性和一致性。
+- 客户端只依赖抽象层，切换产品族成本低。
+- 减少“混搭不兼容产品”带来的运行时问题。
+
+## 实际例子（面试可直接复述）
+跨平台 UI 框架：WindowsFactory 创建 WinButton/WinTextBox；LinuxFactory 创建 LinuxButton/LinuxTextBox。
+
+## 流程图（Mermaid）
 ```mermaid
-classDiagram
-class AbstractFactory{+createA(); +createB()}
-class WinFactory
-class LinuxFactory
-AbstractFactory <|-- WinFactory
-AbstractFactory <|-- LinuxFactory
-class AbstractProductA
-class AbstractProductB
+flowchart TD
+A[Client] --> B[AbstractFactory]
+B --> C[WindowsFactory]
+B --> D[LinuxFactory]
+C --> E[WinButton + WinTextBox]
+D --> F[LinuxButton + LinuxTextBox]
 ```
 
 ## 面试答题模板（30~60秒）
-1. 先说定义：创建“同一产品族”的一组对象，保证族内兼容。
-2. 再说适用场景与优缺点。
-3. 最后给一个 C++ 落地点（接口抽象、智能指针、生命周期管理）。
+1. 先下定义：为一组相关或相互依赖的对象（产品族）提供统一创建接口。
+2. 再讲一个真实业务例子，说明“为什么要用它”。
+3. 最后补充优势与边界（什么时候不该用）。
 
 ## 关联概念跳转
 - [工厂方法模式题目](../02-工厂方法模式.md)
