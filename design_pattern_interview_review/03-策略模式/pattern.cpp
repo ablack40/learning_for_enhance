@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -6,68 +5,78 @@
 #include <unordered_map>
 #include <utility>
 
-class DiscountStrategy {
-public:
-    virtual ~DiscountStrategy() = default;
-    virtual double apply(double amount) const = 0;
+struct RiskInput {
+    int amount;
+    bool newDevice;
+    int failedPayCount;
+    bool overseasIp;
 };
 
-class NoDiscount final : public DiscountStrategy {
+class RiskStrategy {
 public:
-    double apply(double amount) const override { return amount; }
+    virtual ~RiskStrategy() = default;
+    virtual std::string evaluate(const RiskInput& in) const = 0;
 };
 
-class VipDiscount final : public DiscountStrategy {
+class NormalTradeStrategy final : public RiskStrategy {
 public:
-    double apply(double amount) const override { return amount * 0.9; }
+    std::string evaluate(const RiskInput& in) const override {
+        if (in.failedPayCount >= 5 || (in.overseasIp && in.amount > 20000)) {
+            return "REJECT";
+        }
+        return "PASS";
+    }
 };
 
-class NewUserDiscount final : public DiscountStrategy {
+class NewDeviceStrictStrategy final : public RiskStrategy {
 public:
-    double apply(double amount) const override { return std::max(0.0, amount - 20.0); }
+    std::string evaluate(const RiskInput& in) const override {
+        if (in.newDevice && in.amount > 5000) {
+            return "MANUAL_REVIEW";
+        }
+        return "PASS";
+    }
 };
 
-class Double11Discount final : public DiscountStrategy {
+class VipFastPassStrategy final : public RiskStrategy {
 public:
-    double apply(double amount) const override { return std::max(0.0, amount - 30.0); }
+    std::string evaluate(const RiskInput& in) const override {
+        if (in.amount <= 50000 && in.failedPayCount <= 1) {
+            return "PASS";
+        }
+        return "MANUAL_REVIEW";
+    }
 };
 
-class FlashSaleDiscount final : public DiscountStrategy {
+class RiskEngine {
 public:
-    double apply(double amount) const override { return std::max(0.0, amount - 50.0); }
-};
-
-class PricingContext {
-public:
-    void registerStrategy(const std::string& rule_name, std::unique_ptr<DiscountStrategy> strategy) {
-        strategies_[rule_name] = std::move(strategy);
+    void registerStrategy(const std::string& scene, std::unique_ptr<RiskStrategy> strategy) {
+        strategies_[scene] = std::move(strategy);
     }
 
-    double calculatePrice(double amount, const std::string& rule_name) const {
-        const auto it = strategies_.find(rule_name);
+    std::string evaluate(const std::string& scene, const RiskInput& in) const {
+        const auto it = strategies_.find(scene);
         if (it == strategies_.end()) {
-            throw std::invalid_argument("Unknown pricing rule: " + rule_name);
+            throw std::invalid_argument("Unknown risk scene: " + scene);
         }
-        return it->second->apply(amount);
+        return it->second->evaluate(in);
     }
 
 private:
-    std::unordered_map<std::string, std::unique_ptr<DiscountStrategy>> strategies_;
+    std::unordered_map<std::string, std::unique_ptr<RiskStrategy>> strategies_;
 };
 
 int main() {
-    const double amount = 120.0;
-    PricingContext context;
-    context.registerStrategy("no_discount", std::make_unique<NoDiscount>());
-    context.registerStrategy("vip_10", std::make_unique<VipDiscount>());
-    context.registerStrategy("new_user_20", std::make_unique<NewUserDiscount>());
-    context.registerStrategy("double11_30", std::make_unique<Double11Discount>());
+    RiskEngine engine;
+    engine.registerStrategy("normal_trade", std::make_unique<NormalTradeStrategy>());
+    engine.registerStrategy("new_device_strict", std::make_unique<NewDeviceStrictStrategy>());
 
+    const RiskInput input{6800, true, 1, false};
     std::cout << "Strategy implementation\n";
-    std::cout << "VIP order: " << context.calculatePrice(amount, "vip_10") << "\n";
+    std::cout << "normal_trade => " << engine.evaluate("normal_trade", input) << "\n";
 
-    context.registerStrategy("flash_sale_50", std::make_unique<FlashSaleDiscount>());
-    std::cout << "Flash-sale rule added by registration; context unchanged\n";
-    std::cout << "Flash-sale order: " << context.calculatePrice(amount, "flash_sale_50") << "\n";
+    engine.registerStrategy("vip_fast_pass", std::make_unique<VipFastPassStrategy>());
+    std::cout << "New scene added by registration; RiskEngine unchanged\n";
+    std::cout << "vip_fast_pass => " << engine.evaluate("vip_fast_pass", input) << "\n";
     return 0;
 }

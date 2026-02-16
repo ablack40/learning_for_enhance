@@ -5,100 +5,99 @@
 #include <unordered_map>
 #include <utility>
 
-struct Invoice {
-    int id;
-    int total;
-    std::string currency;
+struct PayReq {
+    std::string orderId;
+    int amount;
 };
 
-class Exporter {
-public:
-    virtual ~Exporter() = default;
-    virtual std::string exportInvoice(const Invoice& invoice) const = 0;
+struct PayResp {
+    bool ok;
+    std::string msg;
 };
 
-class CsvExporter final : public Exporter {
+class PaymentClient {
 public:
-    std::string exportInvoice(const Invoice& invoice) const override {
-        return "id,total,currency\n" + std::to_string(invoice.id) + "," +
-               std::to_string(invoice.total) + "," + invoice.currency;
+    virtual ~PaymentClient() = default;
+    virtual PayResp pay(const PayReq& req) = 0;
+};
+
+class PaymentClientFactory {
+public:
+    virtual ~PaymentClientFactory() = default;
+    virtual std::unique_ptr<PaymentClient> create() = 0;
+};
+
+class AlipayClient final : public PaymentClient {
+public:
+    PayResp pay(const PayReq& req) override {
+        return {true, "alipay paid order=" + req.orderId + ", amount=" + std::to_string(req.amount)};
     }
 };
 
-class JsonExporter final : public Exporter {
+class WechatPayClient final : public PaymentClient {
 public:
-    std::string exportInvoice(const Invoice& invoice) const override {
-        return "{\"id\":" + std::to_string(invoice.id) + ",\"total\":" +
-               std::to_string(invoice.total) + ",\"currency\":\"" + invoice.currency + "\"}";
+    PayResp pay(const PayReq& req) override {
+        return {true, "wechat paid order=" + req.orderId + ", amount=" + std::to_string(req.amount)};
     }
 };
 
-class XmlExporter final : public Exporter {
+class BankCardPayClient final : public PaymentClient {
 public:
-    std::string exportInvoice(const Invoice& invoice) const override {
-        return "<invoice><id>" + std::to_string(invoice.id) + "</id><total>" +
-               std::to_string(invoice.total) + "</total><currency>" + invoice.currency +
-               "</currency></invoice>";
+    PayResp pay(const PayReq& req) override {
+        return {true, "bank_card paid order=" + req.orderId + ", amount=" + std::to_string(req.amount)};
     }
 };
 
-class ExporterFactory {
+class AlipayFactory final : public PaymentClientFactory {
 public:
-    virtual ~ExporterFactory() = default;
-    virtual std::unique_ptr<Exporter> createExporter() const = 0;
-};
-
-class CsvExporterFactory final : public ExporterFactory {
-public:
-    std::unique_ptr<Exporter> createExporter() const override {
-        return std::make_unique<CsvExporter>();
+    std::unique_ptr<PaymentClient> create() override {
+        return std::make_unique<AlipayClient>();
     }
 };
 
-class JsonExporterFactory final : public ExporterFactory {
+class WechatPayFactory final : public PaymentClientFactory {
 public:
-    std::unique_ptr<Exporter> createExporter() const override {
-        return std::make_unique<JsonExporter>();
+    std::unique_ptr<PaymentClient> create() override {
+        return std::make_unique<WechatPayClient>();
     }
 };
 
-class XmlExporterFactory final : public ExporterFactory {
+class BankCardPayFactory final : public PaymentClientFactory {
 public:
-    std::unique_ptr<Exporter> createExporter() const override {
-        return std::make_unique<XmlExporter>();
+    std::unique_ptr<PaymentClient> create() override {
+        return std::make_unique<BankCardPayClient>();
     }
 };
 
-class ExportService {
+class PaymentService {
 public:
-    void registerFactory(const std::string& kind, std::unique_ptr<ExporterFactory> factory) {
-        factories_[kind] = std::move(factory);
+    void registerFactory(const std::string& channel, std::unique_ptr<PaymentClientFactory> factory) {
+        factories_[channel] = std::move(factory);
     }
 
-    std::string exportInvoice(const std::string& kind, const Invoice& invoice) const {
-        const auto it = factories_.find(kind);
+    PayResp pay(const std::string& channel, const PayReq& req) {
+        const auto it = factories_.find(channel);
         if (it == factories_.end()) {
-            throw std::invalid_argument("Unsupported exporter kind: " + kind);
+            throw std::invalid_argument("Unsupported channel: " + channel);
         }
-        std::unique_ptr<Exporter> exporter = it->second->createExporter();
-        return exporter->exportInvoice(invoice);
+        return it->second->create()->pay(req);
     }
 
 private:
-    std::unordered_map<std::string, std::unique_ptr<ExporterFactory>> factories_;
+    std::unordered_map<std::string, std::unique_ptr<PaymentClientFactory>> factories_;
 };
 
 int main() {
-    const Invoice invoice{101, 399, "USD"};
-    ExportService service;
-    service.registerFactory("csv", std::make_unique<CsvExporterFactory>());
-    service.registerFactory("json", std::make_unique<JsonExporterFactory>());
+    PaymentService service;
+    service.registerFactory("alipay", std::make_unique<AlipayFactory>());
+    service.registerFactory("wechat", std::make_unique<WechatPayFactory>());
 
+    const PayReq req{"ORD-1001", 8800};
     std::cout << "Factory Method implementation\n";
-    std::cout << service.exportInvoice("csv", invoice) << "\n";
+    std::cout << service.pay("alipay", req).msg << "\n";
 
-    service.registerFactory("xml", std::make_unique<XmlExporterFactory>());
-    std::cout << "XML added by registering a new factory; service code unchanged\n";
-    std::cout << service.exportInvoice("xml", invoice) << "\n";
+    service.registerFactory("bank_card", std::make_unique<BankCardPayFactory>());
+    std::cout << "New channel added by registering a new factory; PaymentService unchanged\n";
+    std::cout << service.pay("bank_card", req).msg << "\n";
     return 0;
 }

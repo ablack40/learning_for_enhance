@@ -1,105 +1,114 @@
 #include <algorithm>
 #include <iostream>
-#include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
-struct Row {
-    std::string name;
-    std::optional<int> score;
+struct UserRecord {
+    std::string userId;
+    std::string phone;
 };
 
-class ReportExporter {
+class UserImportJob {
 public:
-    virtual ~ReportExporter() = default;
+    virtual ~UserImportJob() = default;
 
-    std::string exportReport(const std::vector<Row>& raw_rows) const {
-        auto rows = load(raw_rows);
+    int run(const std::vector<std::string>& lines) const {
+        auto rows = parse(lines);
         rows = filterValid(rows);
-        sortDesc(rows);
-        return format(rows);
+        deduplicate(rows);
+        return persist(rows);
     }
 
 protected:
-    virtual std::string format(const std::vector<Row>& rows) const = 0;
+    virtual std::vector<UserRecord> parse(const std::vector<std::string>& lines) const = 0;
+    virtual int persist(const std::vector<UserRecord>& rows) const = 0;
 
 private:
-    static std::vector<Row> load(const std::vector<Row>& raw_rows) { return raw_rows; }
-
-    static std::vector<Row> filterValid(const std::vector<Row>& rows) {
-        std::vector<Row> output;
+    static std::vector<UserRecord> filterValid(const std::vector<UserRecord>& rows) {
+        std::vector<UserRecord> output;
         for (const auto& row : rows) {
-            if (row.score.has_value()) {
+            if (!row.userId.empty() && row.phone.size() == 11) {
                 output.push_back(row);
             }
         }
         return output;
     }
 
-    static void sortDesc(std::vector<Row>& rows) {
-        std::sort(rows.begin(), rows.end(), [](const Row& lhs, const Row& rhs) {
-            return lhs.score.value() > rhs.score.value();
-        });
+    static void deduplicate(std::vector<UserRecord>& rows) {
+        std::unordered_set<std::string> seen;
+        rows.erase(std::remove_if(rows.begin(), rows.end(), [&seen](const UserRecord& row) {
+                       return !seen.insert(row.userId).second;
+                   }),
+                   rows.end());
     }
 };
 
-class CsvReportExporter final : public ReportExporter {
+class CsvUserImportJob final : public UserImportJob {
 protected:
-    std::string format(const std::vector<Row>& rows) const override {
-        std::ostringstream oss;
-        oss << "name,score\n";
-        for (const auto& row : rows) {
-            oss << row.name << "," << row.score.value() << "\n";
-        }
-        return oss.str();
-    }
-};
-
-class JsonReportExporter final : public ReportExporter {
-protected:
-    std::string format(const std::vector<Row>& rows) const override {
-        std::ostringstream oss;
-        oss << "[";
-        for (size_t i = 0; i < rows.size(); ++i) {
-            oss << "{\"name\":\"" << rows[i].name << "\",\"score\":" << rows[i].score.value()
-                << "}";
-            if (i + 1 < rows.size()) {
-                oss << ",";
+    std::vector<UserRecord> parse(const std::vector<std::string>& lines) const override {
+        std::vector<UserRecord> rows;
+        for (const auto& line : lines) {
+            std::istringstream iss(line);
+            std::string userId;
+            std::string phone;
+            if (std::getline(iss, userId, ',') && std::getline(iss, phone)) {
+                rows.push_back({userId, phone});
             }
         }
-        oss << "]";
-        return oss.str();
+        return rows;
+    }
+
+    int persist(const std::vector<UserRecord>& rows) const override {
+        std::cout << "[csv-job] batch insert into user_table, rows=" << rows.size() << "\n";
+        return static_cast<int>(rows.size());
     }
 };
 
-class MarkdownReportExporter final : public ReportExporter {
+class JsonUserImportJob final : public UserImportJob {
 protected:
-    std::string format(const std::vector<Row>& rows) const override {
-        std::ostringstream oss;
-        oss << "| name | score |\n|---|---|\n";
-        for (const auto& row : rows) {
-            oss << "| " << row.name << " | " << row.score.value() << " |\n";
+    std::vector<UserRecord> parse(const std::vector<std::string>& lines) const override {
+        std::vector<UserRecord> rows;
+        for (const auto& line : lines) {
+            const std::string key1 = "userId=";
+            const std::string key2 = ";phone=";
+            const size_t pos1 = line.find(key1);
+            const size_t pos2 = line.find(key2);
+            if (pos1 == std::string::npos || pos2 == std::string::npos) {
+                continue;
+            }
+            const std::string userId = line.substr(pos1 + key1.size(), pos2 - (pos1 + key1.size()));
+            const std::string phone = line.substr(pos2 + key2.size());
+            rows.push_back({userId, phone});
         }
-        return oss.str();
+        return rows;
+    }
+
+    int persist(const std::vector<UserRecord>& rows) const override {
+        std::cout << "[json-job] sync to crm, rows=" << rows.size() << "\n";
+        return static_cast<int>(rows.size());
     }
 };
 
 int main() {
-    const std::vector<Row> rows{
-        {"alice", 90},
-        {"bob", std::nullopt},
-        {"carol", 96},
+    const std::vector<std::string> csvLines{
+        "U1001,13800000001",
+        "U1002,13800000002",
+        "U1001,13800000001",
+    };
+    const std::vector<std::string> jsonLines{
+        "userId=U2001;phone=13900000001",
+        "userId=U2002;phone=13900000002",
+        "userId=;phone=abc",
     };
 
-    CsvReportExporter csv_exporter;
-    JsonReportExporter json_exporter;
-    MarkdownReportExporter markdown_exporter;
+    CsvUserImportJob csvJob;
+    JsonUserImportJob jsonJob;
 
     std::cout << "Template Method implementation\n";
-    std::cout << csv_exporter.exportReport(rows);
-    std::cout << json_exporter.exportReport(rows) << "\n";
-    std::cout << "New format added by subclassing ReportExporter only\n";
-    std::cout << markdown_exporter.exportReport(rows);
+    std::cout << "csv imported=" << csvJob.run(csvLines) << "\n";
+    std::cout << "json imported=" << jsonJob.run(jsonLines) << "\n";
+    std::cout << "New importer added by subclassing UserImportJob only\n";
     return 0;
 }

@@ -2,34 +2,35 @@
 #include <stdexcept>
 #include <string>
 
-struct Invoice {
-    int id;
-    int total;
-    std::string currency;
+struct PayReq {
+    std::string orderId;
+    int amount;
 };
 
-std::string exportInvoice(const std::string& kind, const Invoice& invoice) {
-    // Every new format requires this function to change.
-    if (kind == "csv") {
-        return "id,total,currency\n" + std::to_string(invoice.id) + "," +
-               std::to_string(invoice.total) + "," + invoice.currency;
+struct PayResp {
+    bool ok;
+    std::string msg;
+};
+
+PayResp pay(const std::string& channel, const PayReq& req) {
+    if (channel == "alipay") {
+        return {true, "alipay paid order=" + req.orderId + ", amount=" + std::to_string(req.amount)};
     }
-    if (kind == "json") {
-        return "{\"id\":" + std::to_string(invoice.id) + ",\"total\":" +
-               std::to_string(invoice.total) + ",\"currency\":\"" + invoice.currency + "\"}";
+    if (channel == "wechat") {
+        return {true, "wechat paid order=" + req.orderId + ", amount=" + std::to_string(req.amount)};
     }
-    throw std::invalid_argument("Unsupported exporter kind: " + kind);
+    throw std::invalid_argument("Unsupported channel: " + channel);
 }
 
 int main() {
-    const Invoice invoice{101, 399, "USD"};
+    const PayReq req{"ORD-1001", 8800};
     std::cout << "Normal implementation\n";
-    std::cout << exportInvoice("csv", invoice) << "\n";
+    std::cout << pay("alipay", req).msg << "\n";
 
     try {
-        std::cout << exportInvoice("xml", invoice) << "\n";
+        std::cout << pay("bank_card", req).msg << "\n";
     } catch (const std::invalid_argument& ex) {
-        std::cout << "To add XML, exportInvoice must be modified: " << ex.what() << "\n";
+        std::cout << "Adding a channel requires modifying pay(...): " << ex.what() << "\n";
     }
     return 0;
 }

@@ -1,71 +1,125 @@
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
-class Beverage {
-public:
-    virtual ~Beverage() = default;
-    virtual double cost() const = 0;
-    virtual std::string description() const = 0;
+struct HttpReq {
+    std::string path;
+    std::string body;
+    std::unordered_map<std::string, std::string> headers;
 };
 
-class BasicCoffee final : public Beverage {
-public:
-    double cost() const override { return 2.0; }
-    std::string description() const override { return "Coffee"; }
+struct HttpResp {
+    int code;
+    std::string body;
 };
 
-class BeverageDecorator : public Beverage {
+class ApiClient {
 public:
-    explicit BeverageDecorator(std::unique_ptr<Beverage> beverage)
-        : beverage_(std::move(beverage)) {}
+    virtual ~ApiClient() = default;
+    virtual HttpResp send(const HttpReq& req) = 0;
+};
+
+class PaymentApiClient final : public ApiClient {
+public:
+    HttpResp send(const HttpReq& req) override {
+        ++callCount_;
+        std::cout << "[base] POST " << req.path << ", call#" << callCount_ << "\n";
+        if (callCount_ == 1) {
+            return {500, "temporary_error"};
+        }
+        return {200, "ok"};
+    }
+
+private:
+    int callCount_{0};
+};
+
+class ApiClientDecorator : public ApiClient {
+public:
+    explicit ApiClientDecorator(std::unique_ptr<ApiClient> next) : next_(std::move(next)) {}
 
 protected:
-    std::unique_ptr<Beverage> beverage_;
+    std::unique_ptr<ApiClient> next_;
 };
 
-class MilkDecorator final : public BeverageDecorator {
+class AuthDecorator final : public ApiClientDecorator {
 public:
-    using BeverageDecorator::BeverageDecorator;
+    using ApiClientDecorator::ApiClientDecorator;
 
-    double cost() const override { return beverage_->cost() + 0.5; }
-    std::string description() const override { return beverage_->description() + " + Milk"; }
+    HttpResp send(const HttpReq& req) override {
+        HttpReq withAuth = req;
+        withAuth.headers["Authorization"] = "Bearer demo-token";
+        std::cout << "[auth] token attached\n";
+        return next_->send(withAuth);
+    }
 };
 
-class SugarDecorator final : public BeverageDecorator {
+class RetryDecorator final : public ApiClientDecorator {
 public:
-    using BeverageDecorator::BeverageDecorator;
+    RetryDecorator(std::unique_ptr<ApiClient> next, int maxAttempts)
+        : ApiClientDecorator(std::move(next)), maxAttempts_(maxAttempts) {}
 
-    double cost() const override { return beverage_->cost() + 0.2; }
-    std::string description() const override { return beverage_->description() + " + Sugar"; }
+    HttpResp send(const HttpReq& req) override {
+        HttpResp resp{500, "unknown_error"};
+        for (int i = 1; i <= maxAttempts_; ++i) {
+            resp = next_->send(req);
+            if (resp.code < 500) {
+                return resp;
+            }
+            std::cout << "[retry] attempt=" << i << " failed, code=" << resp.code << "\n";
+        }
+        return resp;
+    }
+
+private:
+    int maxAttempts_;
 };
 
-class IceDecorator final : public BeverageDecorator {
+class MetricsDecorator final : public ApiClientDecorator {
 public:
-    using BeverageDecorator::BeverageDecorator;
+    using ApiClientDecorator::ApiClientDecorator;
 
-    double cost() const override { return beverage_->cost() + 0.3; }
-    std::string description() const override { return beverage_->description() + " + Ice"; }
+    HttpResp send(const HttpReq& req) override {
+        const auto start = std::chrono::steady_clock::now();
+        const HttpResp resp = next_->send(req);
+        const auto costMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - start)
+                                .count();
+        std::cout << "[metrics] path=" << req.path << ", code=" << resp.code
+                  << ", cost_ms=" << costMs << "\n";
+        return resp;
+    }
 };
 
-class HoneyDecorator final : public BeverageDecorator {
+class TraceDecorator final : public ApiClientDecorator {
 public:
-    using BeverageDecorator::BeverageDecorator;
+    using ApiClientDecorator::ApiClientDecorator;
 
-    double cost() const override { return beverage_->cost() + 0.6; }
-    std::string description() const override { return beverage_->description() + " + Honey"; }
+    HttpResp send(const HttpReq& req) override {
+        HttpReq withTrace = req;
+        withTrace.headers["X-Trace-Id"] = "trace-1001";
+        std::cout << "[trace] trace_id=trace-1001\n";
+        return next_->send(withTrace);
+    }
 };
 
 int main() {
-    std::unique_ptr<Beverage> order = std::make_unique<IceDecorator>(
-        std::make_unique<SugarDecorator>(std::make_unique<MilkDecorator>(std::make_unique<BasicCoffee>())));
+    std::unique_ptr<ApiClient> client = std::make_unique<MetricsDecorator>(
+        std::make_unique<RetryDecorator>(std::make_unique<AuthDecorator>(
+                                             std::make_unique<PaymentApiClient>()),
+                                         2));
 
+    const HttpReq req{"/v1/payment/refund", "{\"orderId\":\"ORD-1001\"}", {}};
     std::cout << "Decorator implementation\n";
-    std::cout << order->description() << " => $" << order->cost() << "\n";
+    const HttpResp first = client->send(req);
+    std::cout << "resp.code=" << first.code << ", resp.body=" << first.body << "\n";
 
-    order = std::make_unique<HoneyDecorator>(std::move(order));
-    std::cout << "New topping added by creating one decorator; no class explosion\n";
-    std::cout << order->description() << " => $" << order->cost() << "\n";
+    client = std::make_unique<TraceDecorator>(std::move(client));
+    std::cout << "New capability added by one decorator; existing classes unchanged\n";
+    const HttpResp second = client->send(req);
+    std::cout << "resp.code=" << second.code << ", resp.body=" << second.body << "\n";
     return 0;
 }

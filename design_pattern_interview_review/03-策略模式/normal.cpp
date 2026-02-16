@@ -1,34 +1,40 @@
-#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 
-double calculatePrice(double amount, const std::string& rule_name) {
-    // Rule logic keeps growing in conditional branches.
-    if (rule_name == "no_discount") {
-        return amount;
+struct RiskInput {
+    int amount;
+    bool newDevice;
+    int failedPayCount;
+    bool overseasIp;
+};
+
+std::string evaluateRisk(const std::string& scene, const RiskInput& in) {
+    if (scene == "normal_trade") {
+        if (in.failedPayCount >= 5 || (in.overseasIp && in.amount > 20000)) {
+            return "REJECT";
+        }
+        return "PASS";
     }
-    if (rule_name == "vip_10") {
-        return amount * 0.9;
+    if (scene == "new_device_strict") {
+        if (in.newDevice && in.amount > 5000) {
+            return "MANUAL_REVIEW";
+        }
+        return "PASS";
     }
-    if (rule_name == "new_user_20") {
-        return std::max(0.0, amount - 20.0);
-    }
-    if (rule_name == "double11_30") {
-        return std::max(0.0, amount - 30.0);
-    }
-    throw std::invalid_argument("Unknown pricing rule: " + rule_name);
+    throw std::invalid_argument("Unknown risk scene: " + scene);
 }
 
 int main() {
-    const double amount = 120.0;
+    const RiskInput input{6800, true, 1, false};
     std::cout << "Normal implementation\n";
-    std::cout << "VIP order: " << calculatePrice(amount, "vip_10") << "\n";
+    std::cout << "normal_trade => " << evaluateRisk("normal_trade", input) << "\n";
 
     try {
-        std::cout << calculatePrice(amount, "flash_sale_50") << "\n";
+        std::cout << evaluateRisk("vip_fast_pass", input) << "\n";
     } catch (const std::invalid_argument& ex) {
-        std::cout << "Adding a new rule requires changing calculatePrice: " << ex.what() << "\n";
+        std::cout << "Adding a new scene requires modifying evaluateRisk(...): " << ex.what()
+                  << "\n";
     }
     return 0;
 }

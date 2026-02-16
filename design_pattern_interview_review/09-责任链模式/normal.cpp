@@ -2,40 +2,38 @@
 #include <string>
 #include <vector>
 
-struct ExpenseRequest {
-    std::string applicant;
-    int amount;
-    std::string reason;
+struct ApiRequest {
+    std::string userId;
+    std::string token;
+    std::string ip;
+    std::string path;
 };
 
-std::string approveExpense(const ExpenseRequest& req) {
-    // Approval logic is centralized and grows into a long conditional block.
-    if (req.reason.find("gift_card") != std::string::npos) {
-        return "Rejected by compliance: " + req.reason;
+std::string handleRequest(const ApiRequest& req) {
+    if (req.token.rfind("tk_", 0) != 0) {
+        return "DENY: invalid token";
     }
-    if (req.amount <= 1000) {
-        return "Approved by manager for " + req.applicant;
+    if (req.ip == "10.0.0.13") {
+        return "DENY: rate limited";
     }
-    if (req.amount <= 5000) {
-        return "Approved by director for " + req.applicant;
+    if (req.path.rfind("/beta/", 0) == 0) {
+        return "ALLOW: route to beta cluster";
     }
-    if (req.amount <= 20000) {
-        return "Approved by VP for " + req.applicant;
-    }
-    return "Escalated to CEO";
+    return "ALLOW: route to stable cluster";
 }
 
 int main() {
-    const std::vector<ExpenseRequest> requests{
-        {"alice", 800, "team lunch"},
-        {"bob", 7200, "conference trip"},
-        {"carol", 300, "gift_card reward"},
+    const std::vector<ApiRequest> requests{
+        {"U-1001", "tk_valid_1", "10.0.0.2", "/api/pay"},
+        {"U-1002", "invalid", "10.0.0.3", "/api/pay"},
+        {"U-1003", "tk_valid_2", "10.0.0.13", "/api/query"},
+        {"U-1004", "tk_valid_3", "10.0.0.4", "/beta/recommend"},
     };
 
     std::cout << "Normal implementation\n";
     for (const auto& req : requests) {
-        std::cout << approveExpense(req) << "\n";
+        std::cout << req.userId << " => " << handleRequest(req) << "\n";
     }
-    std::cout << "Adding a new rule modifies approveExpense directly.\n";
+    std::cout << "Adding new checks modifies handleRequest(...) directly.\n";
     return 0;
 }
